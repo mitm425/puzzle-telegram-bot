@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: telegram-bot
-    env: python
-    plan: free 
+    plan: free
     startCommand: python main.py
-    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        value: YOUR_TELEGRAM_BOT_TOKEN

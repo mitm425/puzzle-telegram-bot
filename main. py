@@ -1,39 +1,188 @@
-import logging
+```python
 import os
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-
-# Настройка логирования
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+import json
+import logging
+from datetime import datetime, timedelta
+from random import choice
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputFile
 )
-logger = logging.getLogger(__name__)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
 
-# Получение токена из переменной окружения
+# --- Конфигурация ---
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+# --- Игровые данные ---
+LANGUAGES = {
+    "ru": {
+        "welcome": "Добро пожаловать в Mystery Roles!",
+        "level": "Уровень {}",
+        "hint_button": "💡 Подсказка (осталось: {})",
+        "block_button": "⛔ Заблокировать игрока",
+        "hint_text": "Подсказка: {}"
+    },
+    "en": {
+        "welcome": "Welcome to Mystery Roles!",
+        "level": "Level {}",
+        "hint_button": "💡 Hint (left: {})",
+        "block_button": "⛔ Block player",
+        "hint_text": "Hint: {}"
+    }
+}
 
-# Пример команды /start
-async def start(update, context):
-    await update.message.reply_text("Привет! Я бот-игра. Готов к головоломкам?")
+LEVELS = {
+    1: {
+        "riddle_ru": "🎭 В темнице сырой темноты,\nБез окон, но полна красоты.",
+        "riddle_en": "🎭 In a dungeon damp and tight,\nNo windows but full of light.",
+        "answer": ["картина", "picture"],
+        "hints_ru": ["Предмет искусства", "Висит на стене"],
+        "hints_en": ["Art object", "Hangs on the wall"],
+        "image": "level1.jpg"
+    }
+}
 
+ROLES = {
+    "spy": {
+        "name_ru": "Шпион",
+        "name_en": "Spy",
+        "ability_ru": "Видит подсказки других игроков",
+        "ability_en": "Can see other players' hints"
+    },
+    "wizard": {
+        "name_ru": "Колдун",
+        "name_en": "Wizard",
+        "ability_ru": "Может заморозить игрока на 1 уровень",
+        "ability_en": "Can freeze another player for 1 level"
+    }
+}
 
-# Пример обработки текста
-async def echo(update, context):
-    await update.message.reply_text(f"Ты сказал: {update.message.text}")
+# --- Хранилище данных ---
+class GameStorage:
+    def __init__(self):
+        self.players = {}
+        self.games = {}
 
+    def add_player(self, user_id: int, lang: str):
+        self.players[user_id] = {
+            "lang": lang,
+            "role": choice(list(ROLES.keys())),
+            "current_level": 1,
+            "hints_used": 0,
+            "hints_available": 3,
+            "blocked_until": None
+        }
 
-# Главная асинхронная функция запуска бота
+storage = GameStorage()
+
+# --- Обработчики команд ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
+        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")]
+    ]
+    await update.message.reply_text(
+        "Выберите язык / Choose language:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def handle_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    lang = query.data.split("_")[1]
+    
+    storage.add_player(user_id, lang)
+    player = storage.players[user_id]
+    role_info = ROLES[player["role"]]
+    
+    await query.edit_message_text(
+        f"{LANGUAGES[lang]['welcome']}\n"
+        f"Ваша роль: {role_info[f'name_{lang}']}\n"
+        f"Способность: {role_info[f'ability_{lang}']}\n\n"
+        f"{LANGUAGES[lang]['level'].format(player['current_level'])}"
+    )
+    await send_level(update, context, user_id)
+
+async def send_level(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    player = storage.players[user_id]
+    lang = player["lang"]
+    level = LEVELS[player["current_level"]]
+    
+    keyboard = [
+        [InlineKeyboardButton(
+            LANGUAGES[lang]["hint_button"].format(player["hints_available"]),
+            callback_data="hint"
+        )],
+        [InlineKeyboardButton(
+            LANGUAGES[lang]["block_button"],
+            callback_data="block"
+        )]
+    ]
+    
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"{level[f'riddle_{lang}']}",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def handle_hint(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    player = storage.players[user_id]
+    
+    if player["hints_used"] < player["hints_available"]:
+        level = LEVELS[player["current_level"]]
+        hint = level[f'hints_{player["lang"]}'][player["hints_used"]]
+        player["hints_used"] += 1
+        
+        await query.answer(LANGUAGES[player["lang"]]["hint_text"].format(hint))
+    else:
+        await query.answer("No hints left!")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    player = storage.players.get(user_id)
+    
+    if not player:
+        await update.message.reply_text("Пожалуйста, начните игру с /start")
+        return
+    
+    level = LEVELS[player["current_level"]]
+    user_answer = update.message.text.lower()
+    
+    if user_answer in level["answer"]:
+        player["current_level"] += 1
+        player["hints_used"] = 0
+        await update.message.reply_text("✅ Правильно! Следующий уровень:")
+        await send_level(update, context, user_id)
+    else:
+        await update.message.reply_text("❌ Неверно, попробуйте еще раз")
+
+# --- Запуск бота ---
 async def main():
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # Обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-
-    # Запуск
-    await application.run_polling()
-
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(handle_lang, pattern="^lang_"))
+    app.add_handler(CallbackQueryHandler(handle_hint, pattern="^hint$"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    await app.run_polling()
 
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+```

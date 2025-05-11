@@ -1,49 +1,78 @@
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import Message
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils import executor
 
+import logging
+
 API_TOKEN = '7692884476:AAHAaMmvKxWlsSeUYfaWO5x5vqwU_wwN9og'
+
+logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
+users = {}
 riddles = [
-    {"question": "Я всегда с тобой, хоть не человек,\nСвет даю, но не из лампочек. Кто я?", "answer": "солнце"},
-    {"question": "Зимой и летом одним цветом. Что это?", "answer": "ёлка"},
+    {
+        "question_ru": "Всегда со мною ты, мой друг,\nТы повторяешь каждый звук.\nТы за спиной, как верный пёс,\nОтвет скажи – кто ты, всерьёз?",
+        "answer": "тень"
+    },
+    {
+        "question_ru": "Без окон, без дверей —\nПолна горница людей.\nОткроешь — вкус внутри живёт,\nОтвет простой, ну кто поймёт?",
+        "answer": "огурец"
+    },
+    {
+        "question_ru": "Он без рук, но пишет, брат,\nО погоде — свой доклад.\nОн колючий, как шипы,\nЗнаешь ты его? Скажи!",
+        "answer": "ёж"
+    }
 ]
 
-user_levels = {}
+roles = ["Мудрец", "Следопыт", "Воин", "Поэт", "Хитрец"]
+user_progress = {}
+
+role_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+for role in roles:
+    role_keyboard.add(KeyboardButton(role))
 
 @dp.message_handler(commands=['start'])
-async def start_game(message: Message):
-    user_levels[message.from_user.id] = 0
-    await message.answer("Привет! Добро пожаловать в игру-загадку!\nВот твоя первая загадка:")
+async def send_welcome(message: types.Message):
+    user_id = message.from_user.id
+    users[user_id] = {"role": None, "level": 0}
+    await message.reply("Добро пожаловать в игру-загадку!\nВыбери свою роль:", reply_markup=role_keyboard)
+
+@dp.message_handler(lambda message: message.text in roles)
+async def choose_role(message: types.Message):
+    user_id = message.from_user.id
+    users[user_id]["role"] = message.text
     await send_riddle(message)
 
-@dp.message_handler()
-async def handle_answer(message: Message):
+async def send_riddle(message: types.Message):
     user_id = message.from_user.id
-    level = user_levels.get(user_id, 0)
+    level = users[user_id]["level"]
+    if level < len(riddles):
+        question = riddles[level]["question_ru"]
+        await message.reply(f"Уровень {level + 1}\nТвоя загадка:\n{question}")
+    else:
+        await message.reply("Поздравляю! Ты прошёл все уровни!")
 
-    if level >= len(riddles):
-        await message.answer("Ты уже прошёл все загадки! Поздравляю!")
+@dp.message_handler()
+async def check_answer(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in users or users[user_id]["role"] is None:
+        await message.reply("Сначала выбери роль, введя /start")
         return
 
-    correct_answer = riddles[level]["answer"].lower()
-    if message.text.lower() == correct_answer:
-        user_levels[user_id] += 1
-        if user_levels[user_id] < len(riddles):
-            await message.answer("Верно! Следующая загадка:")
+    level = users[user_id]["level"]
+    if level < len(riddles):
+        correct_answer = riddles[level]["answer"]
+        if message.text.strip().lower() == correct_answer:
+            users[user_id]["level"] += 1
+            await message.reply("Правильно! Переходим к следующему уровню.")
             await send_riddle(message)
         else:
-            await message.answer("Поздравляю! Ты прошёл все уровни!")
+            await message.reply("Неправильно. Попробуй ещё раз.")
     else:
-        await message.answer("Неверно. Попробуй ещё раз.")
-
-async def send_riddle(message: Message):
-    level = user_levels[message.from_user.id]
-    riddle = riddles[level]["question"]
-    await message.answer(riddle)
+        await message.reply("Ты уже прошёл все загадки. Молодец!")
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)

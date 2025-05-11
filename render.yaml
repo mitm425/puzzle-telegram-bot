@@ -2,7 +2,6 @@ services:
   - type: web
     name: telegram-bot
     env: python
-    plan: free
-    buildCommand: ""
+    plan: free 
     startCommand: python main.py
     autoDeploy: true

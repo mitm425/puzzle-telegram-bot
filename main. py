@@ -1,78 +1,39 @@
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.utils import executor
-
 import logging
+import os
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
-API_TOKEN = '7692884476:AAHAaMmvKxWlsSeUYfaWO5x5vqwU_wwN9og'
+# Настройка логирования
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-logging.basicConfig(level=logging.INFO)
+# Получение токена из переменной окружения
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
 
-users = {}
-riddles = [
-    {
-        "question_ru": "Всегда со мною ты, мой друг,\nТы повторяешь каждый звук.\nТы за спиной, как верный пёс,\nОтвет скажи – кто ты, всерьёз?",
-        "answer": "тень"
-    },
-    {
-        "question_ru": "Без окон, без дверей —\nПолна горница людей.\nОткроешь — вкус внутри живёт,\nОтвет простой, ну кто поймёт?",
-        "answer": "огурец"
-    },
-    {
-        "question_ru": "Он без рук, но пишет, брат,\nО погоде — свой доклад.\nОн колючий, как шипы,\nЗнаешь ты его? Скажи!",
-        "answer": "ёж"
-    }
-]
+# Пример команды /start
+async def start(update, context):
+    await update.message.reply_text("Привет! Я бот-игра. Готов к головоломкам?")
 
-roles = ["Мудрец", "Следопыт", "Воин", "Поэт", "Хитрец"]
-user_progress = {}
 
-role_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-for role in roles:
-    role_keyboard.add(KeyboardButton(role))
+# Пример обработки текста
+async def echo(update, context):
+    await update.message.reply_text(f"Ты сказал: {update.message.text}")
 
-@dp.message_handler(commands=['start'])
-async def send_welcome(message: types.Message):
-    user_id = message.from_user.id
-    users[user_id] = {"role": None, "level": 0}
-    await message.reply("Добро пожаловать в игру-загадку!\nВыбери свою роль:", reply_markup=role_keyboard)
 
-@dp.message_handler(lambda message: message.text in roles)
-async def choose_role(message: types.Message):
-    user_id = message.from_user.id
-    users[user_id]["role"] = message.text
-    await send_riddle(message)
+# Главная асинхронная функция запуска бота
+async def main():
+    application = Application.builder().token(BOT_TOKEN).build()
 
-async def send_riddle(message: types.Message):
-    user_id = message.from_user.id
-    level = users[user_id]["level"]
-    if level < len(riddles):
-        question = riddles[level]["question_ru"]
-        await message.reply(f"Уровень {level + 1}\nТвоя загадка:\n{question}")
-    else:
-        await message.reply("Поздравляю! Ты прошёл все уровни!")
+    # Обработчики
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
-@dp.message_handler()
-async def check_answer(message: types.Message):
-    user_id = message.from_user.id
-    if user_id not in users or users[user_id]["role"] is None:
-        await message.reply("Сначала выбери роль, введя /start")
-        return
+    # Запуск
+    await application.run_polling()
 
-    level = users[user_id]["level"]
-    if level < len(riddles):
-        correct_answer = riddles[level]["answer"]
-        if message.text.strip().lower() == correct_answer:
-            users[user_id]["level"] += 1
-            await message.reply("Правильно! Переходим к следующему уровню.")
-            await send_riddle(message)
-        else:
-            await message.reply("Неправильно. Попробуй ещё раз.")
-    else:
-        await message.reply("Ты уже прошёл все загадки. Молодец!")
 
-if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())

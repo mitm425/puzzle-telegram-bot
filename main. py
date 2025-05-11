@@ -1,0 +1,49 @@
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Message
+from aiogram.utils import executor
+
+API_TOKEN = '7692884476:AAHAaMmvKxWlsSeUYfaWO5x5vqwU_wwN9og'
+
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
+
+riddles = [
+    {"question": "Я всегда с тобой, хоть не человек,\nСвет даю, но не из лампочек. Кто я?", "answer": "солнце"},
+    {"question": "Зимой и летом одним цветом. Что это?", "answer": "ёлка"},
+]
+
+user_levels = {}
+
+@dp.message_handler(commands=['start'])
+async def start_game(message: Message):
+    user_levels[message.from_user.id] = 0
+    await message.answer("Привет! Добро пожаловать в игру-загадку!\nВот твоя первая загадка:")
+    await send_riddle(message)
+
+@dp.message_handler()
+async def handle_answer(message: Message):
+    user_id = message.from_user.id
+    level = user_levels.get(user_id, 0)
+
+    if level >= len(riddles):
+        await message.answer("Ты уже прошёл все загадки! Поздравляю!")
+        return
+
+    correct_answer = riddles[level]["answer"].lower()
+    if message.text.lower() == correct_answer:
+        user_levels[user_id] += 1
+        if user_levels[user_id] < len(riddles):
+            await message.answer("Верно! Следующая загадка:")
+            await send_riddle(message)
+        else:
+            await message.answer("Поздравляю! Ты прошёл все уровни!")
+    else:
+        await message.answer("Неверно. Попробуй ещё раз.")
+
+async def send_riddle(message: Message):
+    level = user_levels[message.from_user.id]
+    riddle = riddles[level]["question"]
+    await message.answer(riddle)
+
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)

@@ -1,0 +1,7 @@
+services:
+  - type: web
+    plan: free
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        value: YOUR_TELEGRAM_BOT_TOKEN
